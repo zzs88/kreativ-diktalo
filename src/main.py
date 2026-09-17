@@ -14,7 +14,7 @@ from src.utils.logger import setup_logger, get_logger
 from src.utils.config_manager import ConfigManager
 from src.core.audio_recorder import AudioRecorder
 # NOTE: SpeechToText imported lazily in __init__ to avoid c10.dll crash on import
-from src.core.llm_cleaner import LLMCleaner
+from src.core.llm_cleaner import LLMCleaner, build_llm_cleaner
 from src.core.keyboard_sim import KeyboardSimulator
 
 # Platform-specifikus hotkey listener
@@ -78,12 +78,7 @@ class KreativDiktalo:
 
         # LLM Cleaner
         self.logger.info("LLM Cleaner inicializálás...")
-        self.llm = LLMCleaner(
-            host=self.config.get('ollama.host', 'http://localhost:11434'),
-            model=self.config.get('ollama.model', 'llama3.1:8b'),
-            timeout=self.config.get('ollama.timeout', 30),
-            temperature=self.config.get('ollama.temperature', 0.3)
-        )
+        self.llm = build_llm_cleaner(self.config)
 
         # Keyboard Simulator
         self.logger.info("Keyboard Simulator inicializálás...")

@@ -24,8 +24,14 @@ if sys.platform == 'win32':
 # Projekt gyökér hozzáadása a path-hoz
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# IMPORTANT: Import torch before PyQt6 to avoid DLL loading issues on Windows
-import torch
+# IMPORTANT: Import torch before PyQt6 to avoid DLL loading issues on Windows.
+# Torch is only needed for the local Whisper provider. For the Groq (cloud)
+# provider it is unnecessary, so make the import optional to allow a lightweight,
+# torch-free install.
+try:
+    import torch
+except ImportError:
+    torch = None
 
 from src.gui.app import KreativDiktaloGUI
 from src.gui.main_window import MainWindow

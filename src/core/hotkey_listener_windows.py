@@ -5,6 +5,7 @@ A 'keyboard' library sokkal jobban működik Windowson mint a pynput,
 de ADMIN JOGOKAT IGÉNYEL a globális hotkey funkcióhoz!
 """
 import keyboard
+from threading import Thread
 from typing import Callable, Optional
 from src.utils.logger import get_logger
 
@@ -101,11 +102,22 @@ class WindowsHotkeyListener:
             raise
 
     def _safe_callback(self, callback: Callable):
-        """Biztonságos callback hívás hibakezeléssel"""
-        try:
-            callback()
-        except Exception as e:
-            logger.error(f"Hiba a hotkey callback-ben: {e}", exc_info=True)
+        """
+        Biztonságos callback hívás hibakezeléssel
+
+        FONTOS: külön szálban futtatjuk, mert a `keyboard` library a hotkey
+        callback-eket a natív alacsony szintű billentyűzet-hook szálán hívja
+        meg szinkronban. Azon a szálon a sounddevice/PortAudio megbízhatatlanul
+        elhasal ("Error querying device -1") mikrofon-stream nyitásakor, míg
+        egy sima háttérszálból ugyanaz a hívás azonnal sikeres.
+        """
+        def _run():
+            try:
+                callback()
+            except Exception as e:
+                logger.error(f"Hiba a hotkey callback-ben: {e}", exc_info=True)
+
+        Thread(target=_run, daemon=True).start()
 
     def stop(self):
         """Hotkey listener leállítása"""

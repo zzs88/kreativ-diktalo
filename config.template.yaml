@@ -62,6 +62,11 @@ stt:
   groq:
     api_key: YOUR_GROQ_API_KEY_HERE
     language: hu
+    prompt: >-
+      Ez egy magyar nyelvű diktálás, helyes helyesírással, vesszőkkel és pontokkal.
+      Gyakran előforduló szavak: WordPress, Elementor, Amelia, FluentCRM, FluentForms,
+      FluentBookings, Berbaflow, Netlify, Cloudflare, Rackhost, Nethely, landing page,
+      domain, DNS, backend, frontend, ügyfél.
   provider: groq
   whisper:
     beam_size: 5
@@ -72,9 +77,16 @@ stt:
     model: small
     temperature: 0.0
 text_processing:
+  backend: groq
   cleaning_mode: llm
-  enable_cleaning: false
+  enable_cleaning: true
   fallback_to_regex: true
+  groq:
+    model: openai/gpt-oss-120b
+    temperature: 0.2
+  vocabulary: >-
+    WordPress, Elementor, Amelia, FluentCRM, FluentForms, FluentBookings, Berbaflow,
+    Netlify, Cloudflare, Rackhost, Nethely, landing page, domain, DNS, backend, frontend
 ui:
   language: hu
   minimize_to_tray: true

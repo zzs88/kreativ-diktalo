@@ -1,7 +1,6 @@
 """
-LLM-alapú szövegtisztító modul Ollama használatával
+LLM-alapú szövegtisztító modul Ollama vagy Groq használatával
 """
-import ollama
 import re
 from typing import Optional
 from src.utils.logger import get_logger
@@ -10,30 +9,58 @@ logger = get_logger()
 
 
 class LLMCleaner:
-    """Ollama LLM-mel történő szövegtisztítás"""
+    """LLM-mel történő szövegtisztítás (Ollama helyi vagy Groq felhő backend)"""
 
     def __init__(
         self,
         host: str = "http://localhost:11434",
         model: str = "llama3.1:8b",
         timeout: int = 30,
-        temperature: float = 0.3
+        temperature: float = 0.3,
+        backend: str = "ollama",
+        groq_api_key: str = "",
+        vocabulary: str = ""
     ):
         """
         Args:
-            host: Ollama szerver URL
-            model: Használandó modell
+            host: Ollama szerver URL (csak backend="ollama" esetén)
+            model: Használandó modell (Ollama modellnév vagy Groq chat modellnév)
             timeout: Timeout másodpercben
             temperature: LLM temperature (0.0-1.0)
+            backend: "ollama" (helyi) vagy "groq" (felhő, nem kell hozzá helyi telepítés)
+            groq_api_key: Groq API kulcs (csak backend="groq" esetén)
+            vocabulary: Vesszővel elválasztott szakszavak/nevek lista, amit az LLM
+                helyesen kell hogy felismerjen/megtartson javítás közben
         """
         self.host = host
         self.model = model
         self.timeout = timeout
         self.temperature = temperature
+        self.backend = backend
+        self.vocabulary = vocabulary
         self.ollama_available = False
-        self.client = ollama.Client(host=self.host)
+        self.groq_client = None
 
-        self._check_ollama_connection()
+        if self.backend == "groq":
+            self._init_groq(groq_api_key)
+        else:
+            import ollama
+            self.client = ollama.Client(host=self.host)
+            self._check_ollama_connection()
+
+    def _init_groq(self, api_key: str):
+        """Groq backend inicializálása (nincs szükség kapcsolat-ellenőrzésre, csak kulcsra)"""
+        if not api_key:
+            logger.warning("Groq API kulcs hiányzik a szövegtisztításhoz, fallback regex tisztításra")
+            return
+
+        try:
+            from groq import Groq
+            self.groq_client = Groq(api_key=api_key)
+            self.ollama_available = True  # generikus "LLM elérhető" jelző, lásd is_available()
+            logger.info(f"Groq LLM szövegtisztítás inicializálva (model: {self.model})")
+        except Exception as e:
+            logger.warning(f"Groq LLM inicializálás sikertelen: {e}")
 
     def _check_ollama_connection(self):
         """Ollama szerver elérhetőség ellenőrzése"""
@@ -87,8 +114,16 @@ class LLMCleaner:
         Returns:
             Prompt string
         """
-        prompt = f"""Javítsd ki ezt a szöveget. Távolítsd el a töltelékszavakat (hát, szóval, ööö), javítsd a helyesírást és írásjeleket. Válaszolj CSAK a javított szöveggel, semmi mással.
+        vocab_hint = ""
+        if self.vocabulary:
+            vocab_hint = (
+                f"\nGyakran előforduló szakszavak/nevek, amiket a beszédfelismerő "
+                f"eltorzíthatott — ha egy szó ezekre hasonlít, javítsd a helyes alakra: "
+                f"{self.vocabulary}\n"
+            )
 
+        prompt = f"""Ez egy magyar nyelvű diktált szöveg gépi beszédfelismerésből. Javítsd ki a nyilvánvaló félrehallásokat és elgépeléseket, távolítsd el a töltelékszavakat (hát, szóval, ööö, izé) és a szóismétléseket, tedd rendbe a helyesírást és az írásjeleket, mondatkezdéskor nagybetű. NE fogalmazd át a mondatokat, NE adj hozzá új tartalmat, csak a felismerési hibákat javítsd és tisztítsd a szöveget. Válaszolj KIZÁRÓLAG a javított szöveggel, semmi mással (ne írj bevezetőt vagy magyarázatot).
+{vocab_hint}
 Szöveg: {text}
 
 Javított:"""
@@ -131,12 +166,15 @@ MÓDOSÍTOTT SZÖVEG (csak a szöveget írd, semmi mást):"""
             return text
 
         text = text.strip()
-        logger.info(f"Szövegtisztítás indítása: {len(text)} karakter")
+        logger.info(f"Szövegtisztítás indítása ({self.backend}): {len(text)} karakter")
 
-        # Ollama használat ha elérhető
+        # LLM használat ha elérhető (Ollama vagy Groq)
         if self.ollama_available:
             try:
-                cleaned = self._clean_with_ollama(text)
+                if self.backend == "groq":
+                    cleaned = self._clean_with_groq(text)
+                else:
+                    cleaned = self._clean_with_ollama(text)
                 logger.info("LLM tisztítás sikeres")
                 return cleaned
             except Exception as e:
@@ -146,6 +184,33 @@ MÓDOSÍTOTT SZÖVEG (csak a szöveget írd, semmi mást):"""
         cleaned = self._basic_clean(text)
         logger.info("Regex alapú tisztítás használva")
         return cleaned
+
+    def _clean_with_groq(self, text: str) -> str:
+        """
+        Szöveg tisztítása Groq felhő LLM-mel
+
+        Args:
+            text: Nyers szöveg
+
+        Returns:
+            Tisztított szöveg
+        """
+        prompt = self._build_cleaning_prompt(text)
+
+        response = self.groq_client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+        )
+
+        cleaned_text = response.choices[0].message.content.strip()
+
+        # Biztonság: ha túl rövid vagy üres, ne használjuk
+        if len(cleaned_text) < len(text) * 0.3:
+            logger.warning("LLM válasz túl rövid, fallback használata")
+            return self._basic_clean(text)
+
+        return cleaned_text
 
     def _clean_with_ollama(self, text: str) -> str:
         """
@@ -241,21 +306,28 @@ MÓDOSÍTOTT SZÖVEG (csak a szöveget írd, semmi mást):"""
         logger.info(f"Command feldolgozás: '{command}'")
 
         if not self.ollama_available:
-            logger.warning("Ollama nem elérhető, command mode nem működik")
+            logger.warning("LLM nem elérhető, command mode nem működik")
             return text
 
         try:
             prompt = self._build_command_prompt(text, command)
 
-            response = self.client.generate(
-                model=self.model,
-                prompt=prompt,
-                options={
-                    'temperature': self.temperature,
-                }
-            )
-
-            modified_text = response['response'].strip()
+            if self.backend == "groq":
+                response = self.groq_client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=self.temperature,
+                )
+                modified_text = response.choices[0].message.content.strip()
+            else:
+                response = self.client.generate(
+                    model=self.model,
+                    prompt=prompt,
+                    options={
+                        'temperature': self.temperature,
+                    }
+                )
+                modified_text = response['response'].strip()
 
             logger.info("Command feldolgozás sikeres")
             return modified_text
@@ -281,11 +353,43 @@ MÓDOSÍTOTT SZÖVEG (csak a szöveget írd, semmi mást):"""
             Státusz dictionary
         """
         return {
+            'backend': self.backend,
             'ollama_available': self.ollama_available,
             'host': self.host,
             'model': self.model,
             'temperature': self.temperature
         }
+
+
+def build_llm_cleaner(config) -> "LLMCleaner":
+    """
+    LLMCleaner létrehozása a config alapján, backend-választással (ollama vagy groq)
+
+    Args:
+        config: ConfigManager instance
+
+    Returns:
+        Konfigurált LLMCleaner
+    """
+    backend = config.get('text_processing.backend', 'ollama')
+
+    if backend == 'groq':
+        return LLMCleaner(
+            backend='groq',
+            groq_api_key=config.get('stt.groq.api_key', ''),
+            model=config.get('text_processing.groq.model', 'openai/gpt-oss-120b'),
+            temperature=config.get('text_processing.groq.temperature', 0.2),
+            vocabulary=config.get('text_processing.vocabulary', '')
+        )
+
+    return LLMCleaner(
+        backend='ollama',
+        host=config.get('ollama.host', 'http://localhost:11434'),
+        model=config.get('ollama.model', 'llama3.1:8b'),
+        timeout=config.get('ollama.timeout', 30),
+        temperature=config.get('ollama.temperature', 0.3),
+        vocabulary=config.get('text_processing.vocabulary', '')
+    )
 
 
 # Teszt funkció

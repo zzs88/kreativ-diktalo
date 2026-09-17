@@ -77,6 +77,7 @@ class STTLoadWorker(QThread):
 
         api_key = self.config.get('stt.groq.api_key', '')
         language = self.config.get('stt.groq.language', 'hu')
+        prompt = self.config.get('stt.groq.prompt', '')
 
         if not api_key:
             raise ValueError(
@@ -90,7 +91,7 @@ class STTLoadWorker(QThread):
             )
 
         logger.info(f"Groq Whisper inicializálása (language: {language})")
-        self.stt = GroqSpeechToText(api_key=api_key, language=language)
+        self.stt = GroqSpeechToText(api_key=api_key, language=language, prompt=prompt)
         logger.info("Groq Whisper készen áll (WISPR FLOW!)")
 
     def _load_assemblyai(self):

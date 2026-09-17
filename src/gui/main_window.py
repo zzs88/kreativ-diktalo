@@ -366,7 +366,7 @@ class MainWindow(QMainWindow):
         # Import here to avoid circular dependency at module level
         import platform
         from src.core.audio_recorder import AudioRecorder
-        from src.core.llm_cleaner import LLMCleaner
+        from src.core.llm_cleaner import build_llm_cleaner
         from src.core.keyboard_sim import KeyboardSimulator
 
         # Platform-specifikus hotkey listener
@@ -400,12 +400,7 @@ class MainWindow(QMainWindow):
         self.backend.stt = stt
 
         # LLM Cleaner
-        self.backend.llm = LLMCleaner(
-            host=self.config.get('ollama.host', 'http://localhost:11434'),
-            model=self.config.get('ollama.model', 'llama3.1:8b'),
-            timeout=self.config.get('ollama.timeout', 30),
-            temperature=self.config.get('ollama.temperature', 0.3)
-        )
+        self.backend.llm = build_llm_cleaner(self.config)
 
         # Keyboard Simulator
         self.backend.keyboard = KeyboardSimulator(
@@ -459,7 +454,11 @@ class MainWindow(QMainWindow):
             self.toast_manager.show(f"⏳ Várj, még feldolgozás folyik...", duration=2000, toast_type='warning')
             return
 
-        self.backend.audio_recorder.start_recording()
+        if not self.backend.audio_recorder.start_recording():
+            logger.error("Rögzítés indítása sikertelen (mikrofon hiba), visszaállás idle állapotba")
+            self.toast_manager.show("⚠️ Mikrofon hiba, próbáld újra", duration=3000, toast_type='warning')
+            return
+
         self.state_machine.transition_to(AppState.RECORDING)
         self.signals.emit_status("Rögzítés...", 0)
 

@@ -28,19 +28,22 @@ class GroqSpeechToText:
     - Huge free tier: 14,400 minutes/day
     """
 
-    def __init__(self, api_key: str, language: str = "hu"):
+    def __init__(self, api_key: str, language: str = "hu", prompt: str = ""):
         """
         Initialize Groq client
 
         Args:
             api_key: Groq API key
             language: Language code (hu, en, etc.)
+            prompt: Optional context/vocabulary hint passed to Whisper to bias
+                recognition towards expected terms and punctuation style
         """
         self.api_key = api_key
         self.language = language
+        self.prompt = prompt or ""
         self.client = Groq(api_key=api_key)
 
-        logger.info(f"Groq Whisper inicializálva (language: {language})")
+        logger.info(f"Groq Whisper inicializálva (language: {language}, prompt: {'igen' if self.prompt else 'nincs'})")
 
     def transcribe_file(self, audio_path: str) -> Dict[str, Any]:
         """
@@ -60,7 +63,9 @@ class GroqSpeechToText:
                     file=(Path(audio_path).name, file.read()),
                     model="whisper-large-v3",
                     language=self.language,
-                    response_format="verbose_json"
+                    response_format="verbose_json",
+                    prompt=self.prompt,
+                    temperature=0.0
                 )
 
             result = {
